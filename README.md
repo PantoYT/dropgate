@@ -147,8 +147,12 @@ Konfiguracja siedzi w `config.json`:
            "known_hosts": "known_hosts", "auto": true, "keep": 10, "timeout": 8}
 ```
 
-Backup działa tam, gdzie widać serwer — czyli w sieci, w której on stoi. Poza nią
-kopie po prostu się nie robią (dropgate mówi o tym w panelu i nie blokuje pracy).
+Backup działa tam, gdzie widać serwer. Wpisz adres z sieci mesh (Tailscale,
+WireGuard, ZeroTier) zamiast LAN-owego — wtedy kopie robią się z każdej sieci,
+a nie tylko spod domowego routera. Gdy serwera nie widać, kopie po prostu się nie
+robią: dropgate pisze o tym w panelu i nie blokuje pracy, a po nieudanej próbie
+czeka `retry_after` sekund. **Nie kasuj tej karencji** — seria nieudanych logowań
+to najprostsza droga do bana od fail2ban po stronie serwera.
 
 Skrypt odbiornika: [`extras/dropgate-recv.sh`](extras/dropgate-recv.sh).
 

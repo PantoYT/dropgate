@@ -123,6 +123,7 @@ DEFAULT_BACKUP = {
     "auto": True,           # backup po każdej zmianie bazy (w trybie `go`)
     "keep": 10,             # ile kopii trzymać na serwerze
     "timeout": 8,           # sekundy na nawiązanie połączenia
+    "retry_after": 300,     # karencja po nieudanej próbie — żeby nie dobijać serwera
 }
 
 DEFAULT_CONF = {
@@ -500,19 +501,28 @@ def start_autobackup(conf: dict):
 
     def loop():
         last = _db_signature()
+        cooldown = int(b.get("retry_after", 300))
+        failed_at = 0.0
         while True:
             time.sleep(10)
             sig = _db_signature()
             if sig == last:
+                continue
+            # po nieudanej próbie odczekaj — nie dobijaj serwera, który nie odpowiada
+            # (seria nieudanych logowań to prosta droga do bana od fail2ban)
+            if failed_at and time.time() - failed_at < cooldown:
                 continue
             time.sleep(5)                     # wyciszenie — poczekaj na koniec uploadu
             sig = _db_signature()
             try:
                 r = backup_run(conf, reason="auto")
                 print(f"• backup: {r['name']} ({fmt_size(r['size'])})", file=sys.stderr)
+                failed_at = 0.0
+                last = sig
             except BackupError as e:
-                print(f"! backup nieudany: {e}", file=sys.stderr)
-            last = sig
+                failed_at = time.time()
+                print(f"! backup nieudany: {e} — kolejna próba za {cooldown // 60} min",
+                      file=sys.stderr)
 
     threading.Thread(target=loop, daemon=True).start()
 
