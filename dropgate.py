@@ -364,9 +364,12 @@ def _ssh(b: dict, remote: str, stdin=None, capture_bytes=False, timeout=None):
 
 def backup_state() -> dict:
     try:
-        return json.loads(BACKUP_STATE.read_text("utf-8"))
+        st = json.loads(BACKUP_STATE.read_text("utf-8"))
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
+    if "ok_at" not in st and st.get("name") and st.get("ok") is not False:
+        st["ok_at"] = st.get("at")            # stan sprzed rozdzielenia próba/sukces
+    return st
 
 def _set_backup_state(**kw):
     st = backup_state(); st.update(kw); st["at"] = time.time()
