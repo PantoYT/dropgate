@@ -1,3 +1,7 @@
 __pycache__/
 *.pyc
 .impeccable/
+
+# paczka portable: sekrety tunelu (state/tunnel.json, state/secret.key)
+# oraz ~78 MB binariow (python embeddable + cloudflared) — nigdy do repo
+portable/
