@@ -1079,7 +1079,7 @@ function render(s){
   $('#st').title = s.public ? s.base : (s.base+' — nie do wysłania na zewnątrz');
   const b=s.backup;
   $('#bk').textContent = !b.on ? '' : (b.busy ? 'backup trwa…'
-    : b.ok===false ? 'backup: '+b.msg : 'backup '+b.ago+' ↻');
+    : b.ok===false ? 'backup: '+b.msg : (b.ago ? 'backup '+b.ago+' ↻' : 'backup ↻'));
   $('#bk').style.color = (b.on && b.ok===false) ? 'var(--err)' : '';
   $('#cnt').textContent = s.shares.length ? 'aktywne · '+s.shares.length : 'aktywne';
   const L=$('#list');
@@ -1237,7 +1237,8 @@ class AdminHandler(BaseHandler):
                 "tunnel": RT.tunnel, "msg": RT.tunnel_msg, "shares": out,
                 "backup": {"on": bok, "why": bwhy, "busy": RT.backup_busy,
                            "ok": bst.get("ok"), "msg": bst.get("msg", ""),
-                           "name": bst.get("name", ""), "ago": _ago(bst.get("ok_at"))}}
+                           "name": bst.get("name", ""),
+                           "ago": _ago(bst["ok_at"]) if bst.get("ok_at") else ""}}
 
     def _opts(self, q: dict):
         def one(k, default=None):
@@ -1652,7 +1653,9 @@ def cmd_backup(args):
         st = backup_state()
         print(f"cel:      {b['user']}@{b['host']}" if b.get("host") else "cel:      (nieskonfigurowany)")
         print(f"gotowy:   {'tak' if ok else 'NIE — ' + why}")
-        print(f"ostatni:  {st.get('name','—')}  {_ago(st.get('ok_at'))}")
+        okat = st.get("ok_at")
+        print(f"ostatni:  {st.get('name','—')}  "
+              f"{_ago(okat) if okat else ('(data nieznana)' if st.get('name') else 'nigdy')}")
         if st.get("ok") is False:
             print(f"BŁĄD:     {st.get('msg','')}  (próba {_ago(st.get('at'))})")
         if ok:
