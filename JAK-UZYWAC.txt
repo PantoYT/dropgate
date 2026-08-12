@@ -4,15 +4,43 @@ dropgate — wersja z pendrive'a
 CO ZROBIC
 ---------
 
-  * dwuklik na  dropgate.bat      -> otwiera panel w przegladarce.
+  1. dwuklik na  odszyfruj-stan.bat  -> podajesz haslo, stan wraca do state\.
+                                     Bez tego dropgate.bat sam sie zatrzyma
+                                     (i dobrze — patrz "SZYFROWANIE" nizej).
+
+  2. dwuklik na  dropgate.bat      -> otwiera panel w przegladarce.
                                      Przeciagasz plik do okna -> link ladzie
                                      w schowku. Wklejasz komus i tyle.
 
-  * przeciagnij plik na  wyslij-plik.bat  -> to samo, ale bez panelu:
+     albo: przeciagnij plik na  wyslij-plik.bat  -> to samo, ale bez panelu:
                                      link od razu w konsoli i w schowku.
+
+  3. po skonczonej pracy: dwuklik na  zaszyfruj-stan.bat
+                                     -> jawne sekrety znikaja z nosnika.
 
   Okno konsoli MUSI zostac otwarte — jego zamkniecie konczy serwowanie
   i link przestaje dzialac (pliki nadal leza na pendrivie).
+
+
+SZYFROWANIE STANU
+-----------------
+
+  state\ niesie klucz prywatny SSH, sekret serwera i poswiadczenia tunelu.
+  Do sierpnia 2026 lezalo to na pendrivie jawnym tekstem, a na PC nie bylo
+  tego wcale — czyli zgubiony nosnik oznaczal oddanie wszystkiego naraz.
+
+      zaszyfruj-stan.bat   state\ -> state.7z (AES-256, nazwy plikow tez
+                           zaszyfrowane) i kasuje jawna wersje. Jawny state\
+                           znika DOPIERO po pomyslnym tescie archiwum.
+      odszyfruj-stan.bat   z powrotem. Odmawia nadpisania istniejacego state\.
+
+  HASLA NIE DA SIE ODZYSKAC. Bez niego przepada baza udostepnien i wszystkie
+  dotychczasowe linki.
+
+  dropgate.bat ma straznika: jesli widzi state.7z, a nie widzi
+  state\secret.key, odmawia startu. Powod jest konkretny — dropgate przy
+  braku secret.key generuje NOWY, po cichu, i wtedy kazdy istniejacy link
+  przestaje dzialac. Lepiej stanac niz stracic baze.
 
 
 ADRES
@@ -40,9 +68,17 @@ CO JEST W SRODKU
   dropgate.py        caly program (jeden plik, tylko stdlib)
   python\            Python 3.14.3 embeddable — dziala na PC bez Pythona
   bin\cloudflared.exe    klient tunelu Cloudflare
+  bin\7z.exe + 7z.dll    do szyfrowania stanu, zeby dzialalo tez na obcym PC
   state\             stan: baza share'ow, klucz HMAC, POSWIADCZENIA TUNELU
+                     (istnieje tylko miedzy odszyfruj- a zaszyfruj-)
+  state.7z           zaszyfrowany stan — to jest wersja spoczynkowa
   state\files\       pliki wrzucone przez panel (kopie)
   PORTABLE           znacznik: "trzymaj stan obok skryptu, nie w profilu"
+
+  Od sierpnia 2026 ta paczka jest KLONEM GITA, nie kopia plikow. Dzieki temu
+  wiadomo, czy wersja na pendrivie rozjechala sie z repo, i aktualizuje sie ja
+  jednym `git pull`. python\, bin\, state\ i state.7z sa w .gitignore, wiec
+  `git add -A` z pendrive'a nie ma jak wciagnac sekretow do publicznego repo.
 
 
 BACKUP (zeby pendrive nie byl jedynym egzemplarzem)
@@ -93,4 +129,5 @@ UWAGI
     zrodlowego link zwroci 410. Chcesz zabrac plik ze soba: uzyj panelu
     (kopiuje do state\files\) albo  dropgate.py share plik --copy .
 
-  * Aktualizacja programu: nadpisz dropgate.py nowa wersja z repo.
+  * Aktualizacja programu:  git pull  w katalogu paczki. Nie trzeba juz nic
+    nadpisywac recznie — pendrive jest klonem repo PantoYT/dropgate.
