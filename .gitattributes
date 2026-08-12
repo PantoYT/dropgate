@@ -1,0 +1,10 @@
+# Pliki wsadowe MUSZĄ mieć CRLF. Z LF cmd zjada pierwsze znaki linii
+# („chcp" → „cp", „cd /d" → „/d") i sypie „is not recognized".
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Skrypty odbiorcze jadą na Debiana po SSH — tam CRLF zabija shebang.
+*.sh text eol=lf
+
+*.py  text eol=lf
+*.md  text eol=lf

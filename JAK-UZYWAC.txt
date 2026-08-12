@@ -1,0 +1,96 @@
+dropgate — wersja z pendrive'a
+==============================
+
+CO ZROBIC
+---------
+
+  * dwuklik na  dropgate.bat      -> otwiera panel w przegladarce.
+                                     Przeciagasz plik do okna -> link ladzie
+                                     w schowku. Wklejasz komus i tyle.
+
+  * przeciagnij plik na  wyslij-plik.bat  -> to samo, ale bez panelu:
+                                     link od razu w konsoli i w schowku.
+
+  Okno konsoli MUSI zostac otwarte — jego zamkniecie konczy serwowanie
+  i link przestaje dzialac (pliki nadal leza na pendrivie).
+
+
+ADRES
+-----
+
+  Domyslnie linki wygladaja tak:
+
+      https://drop.panto-dev.com/d/<32 znaki hex>
+
+  To staly adres — wpiety w Cloudflare przez wlasny tunel "dropgate"
+  (UUID 78ac0823-2d2b-4a6e-82a0-506c41317e22). Dziala z kazdej sieci,
+  nie trzeba nic przekierowywac na routerze.
+
+  Jak nie chcesz uzywac wlasnej domeny (np. obcy komputer, wolisz nie
+  wyciagac poswiadczen), dodaj  --quick :
+
+      dropgate.bat --quick
+
+  wtedy dostajesz losowy adres *.trycloudflare.com, bez zadnych sekretow.
+
+
+CO JEST W SRODKU
+----------------
+
+  dropgate.py        caly program (jeden plik, tylko stdlib)
+  python\            Python 3.14.3 embeddable — dziala na PC bez Pythona
+  bin\cloudflared.exe    klient tunelu Cloudflare
+  state\             stan: baza share'ow, klucz HMAC, POSWIADCZENIA TUNELU
+  state\files\       pliki wrzucone przez panel (kopie)
+  PORTABLE           znacznik: "trzymaj stan obok skryptu, nie w profilu"
+
+
+BACKUP (zeby pendrive nie byl jedynym egzemplarzem)
+---------------------------------------------------
+
+  Caly katalog state\ — baza tokenow, klucz HMAC, poswiadczenia tunelu
+  i pliki z magazynu — jedzie na serwer 192.168.33.10 przez SSH.
+
+      dropgate.py backup            wyslij kopie teraz
+      dropgate.py backup --status   kiedy ostatnio, ile kopii, ile miejsca
+      dropgate.py restore --yes     odtworz najnowsza (NADPISUJE stan)
+
+  W panelu (dropgate.bat) kopia robi sie sama po kazdej zmianie, a napis
+  "BACKUP 3 MIN TEMU" w prawym rogu listy jest klikalny — wymusza backup.
+  Trzymane jest 10 ostatnich kopii, starsze kasuja sie same.
+
+  Klucz state\backup_key NIE daje shella na serwerze — tylko list/put/get/
+  prune/stat. Odciecie po zgubieniu pendrive'a: usun z ~/.ssh/authorized_keys
+  linijke z "dropgate-portable".
+
+  Backup idzie na adres serwera w Tailscale (100.117.148.97), nie na LAN-owy
+  192.168.33.10 — dziala wiec z kazdej sieci, o ile na komputerze chodzi
+  Tailscale. Na obcym PC bez Tailscale dropgate dziala normalnie, tylko
+  kopie sie nie robia (po nieudanej probie czeka 5 minut).
+
+  PADL PENDRIVE? Na nowym: rozpakuj paczke, wgraj state\backup_key,
+  state\known_hosts i state\config.json, potem:
+
+      dropgate.py restore --yes
+
+  Tokeny i secret.key wracaja 1:1, wiec STARE LINKI DALEJ DZIALAJA.
+
+
+UWAGI
+-----
+
+  * state\tunnel.json to sekret. Kto ma ten plik, moze serwowac ruch na
+    drop.panto-dev.com. Zgubiony pendrive = skasuj tunel:
+        cloudflared tunnel delete dropgate
+    i zrob nowy. Reszta workspace'u na tym nie ucierpi — to osobny tunel,
+    niezalezny od "kompu-tunnel" i "panto".
+
+  * Litera dysku moze sie zmieniac (E:, G:, H:) — dropgate zapisuje sciezki
+    wzgledem korzenia wolumenu, wiec share'y z plikami na pendrivie przezyja
+    przelozenie do innego portu/komputera.
+
+  * Pliki spoza pendrive'a sa serwowane "z miejsca" — po odpieciu dysku
+    zrodlowego link zwroci 410. Chcesz zabrac plik ze soba: uzyj panelu
+    (kopiuje do state\files\) albo  dropgate.py share plik --copy .
+
+  * Aktualizacja programu: nadpisz dropgate.py nowa wersja z repo.
