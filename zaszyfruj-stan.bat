@@ -36,7 +36,10 @@ echo.
 echo   Teraz sprawdzam archiwum - podaj to samo haslo jeszcze raz.
 echo   Bez tego kasowanie jawnego stanu byloby ruletka.
 echo.
-"%SZ%" t -p "state.7z"
+rem UWAGA: tu NIE MOZE byc -p. Przy `a` samo -p znaczy "zapytaj o haslo",
+rem ale przy `t` i `x` znaczy "haslo jest puste" - i test zawsze pada z
+rem "Wrong password?", mimo ze haslo bylo dobre. Bez -p 7-Zip pyta sam.
+"%SZ%" t "state.7z"
 if errorlevel 1 (
   echo.
   echo   TEST NIE PRZESZEDL - NIE kasuje state\.

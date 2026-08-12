@@ -22,7 +22,9 @@ if exist "%~dp0state\secret.key" (
   exit /b 0
 )
 
-"%SZ%" x -p "state.7z" -o"%~dp0"
+rem Bez -p. Przy `x` samo -p znaczy "haslo puste", nie "zapytaj" - z nim
+rem rozpakowanie zawsze pada na "Wrong password?". Bez niego 7-Zip pyta sam.
+"%SZ%" x "state.7z" -o"%~dp0"
 if errorlevel 1 (
   echo.
   echo   Zle haslo albo uszkodzone archiwum. state\ nie powstal.
