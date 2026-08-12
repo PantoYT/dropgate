@@ -48,3 +48,8 @@ cloudflared*
 7za.exe
 7z.exe
 7z.dll
+
+# Znacznik trybu portable. Jego OBECNOŚĆ mówi dropgate'owi, że stoi na nośniku
+# wymiennym — więc jest cechą konkretnego wdrożenia, nie kodu. W repo sprawiłby,
+# że checkout na PC też uznałby się za portable.
+PORTABLE
