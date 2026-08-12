@@ -2,6 +2,49 @@ __pycache__/
 *.pyc
 .impeccable/
 
-# paczka portable: sekrety tunelu (state/tunnel.json, state/secret.key)
-# oraz ~78 MB binariow (python embeddable + cloudflared) — nigdy do repo
+# ──────────────────────────────────────────────────────────────────────────
+# Sekrety i stan.
+#
+# Reguły są CELOWO niezależne od ścieżki. Poprzednia wersja ignorowała samo
+# `portable/`, co działało na PC — ale paczka portable ma układ PŁASKI:
+# `state/`, `bin/` i `python/` leżą tam w korzeniu. Po sklonowaniu repo do
+# `G:\Portable\dropgate` reguła `portable/` nie dopasowywała niczego, więc
+# state/secret.key, state/backup_key i state/tunnel.json były nieśledzone
+# i NIEIGNOROWANE — jeden `git add -A` od wylądowania w publicznym repo.
+#
+# Stąd wzorce po nazwie, nie po ścieżce: mają trzymać niezależnie od tego,
+# w jakim układzie stoi checkout.
+# ──────────────────────────────────────────────────────────────────────────
+state/
+**/state/
+secret.key
+tunnel.json
+backup_key
+known_hosts
+cloudflared.yml
+config.json
+shares.json
+shares.json.lock
+backup-state.json
+*.pem
+*.key
+*.ppk
+id_rsa
+id_ed25519
+.env
+
+# Zaszyfrowany stan paczki portable. Blob jest bezpieczny, ale nie ma powodu,
+# żeby jechał z repo — to dane jednego nośnika, nie kod.
+state.7z
+state.enc
+
+# ──────────────────────────────────────────────────────────────────────────
+# Binaria trybu portable — ~85 MB, ściągalne, nigdy do repo.
+# ──────────────────────────────────────────────────────────────────────────
 portable/
+bin/
+python/
+cloudflared*
+7za.exe
+7z.exe
+7z.dll
