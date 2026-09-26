@@ -173,22 +173,24 @@ tunnel name running on two machines means replicas, and traffic goes to the
 **geographically nearest** — so from a USB stick it would randomly land here one time and
 there another.
 
-## Pickup without retyping the link
+## Pickup by file name
 
-A new share gets an extra code, e.g. `lis-klon-kawa-482913`. The sender sees it in the
-panel (clicking copies the code) and in the `add` and `share` commands. The recipient
-opens the main dropgate address and types the code. Case doesn't matter, dashes can be
-replaced with spaces. The file's password, download limit and one-time mode still apply.
+No need to dictate the link: the recipient opens the main dropgate address and types the
+**file name** (e.g. `report` or `report.pdf`). Case, spaces/underscores and Polish
+diacritics don't matter — `Zdjęcie Mamy_2025.JPG` can be typed as `zdjecie mamy 2025`.
+If a label is given (`--label`), the label is used instead of the file name. When two
+shares with the same name are active at once, the second gets a `-2` suffix. The sender
+sees the code in the panel (click to copy) and in the `add` / `share` output. The file's
+password, download limit and one-time mode still apply.
 
 The code works for **15 minutes from creating the share**, at most until the file
-expires. After that use the regular link or create a new share. Existing shares keep
-working through their original links.
+expires. After that use the regular link.
 
-A short code has about 38 bits of randomness, so it's a weaker secret than the 128-bit
-link. That's why the pickup endpoint has a global limit of 30 attempts per minute per
-process, including behind the tunnel. The limit can temporarily block code pickup under
-heavy traffic; regular links keep working. After a process restart the attempt counter
-starts from zero. Don't run multiple replicas with this mechanism.
+A file name is much easier to guess than the 128-bit link — that's the price of not
+having to dictate anything. The 15-minute window and a global limit of 30 attempts per
+minute per process (including behind the tunnel) keep that risk small; for anything
+sensitive add `--pass`. After a process restart the attempt counter starts from zero.
+Don't run multiple replicas with this mechanism.
 
 Tests without a tunnel and without touching the real state:
 `python -m unittest test_pickup.py`.

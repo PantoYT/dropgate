@@ -54,11 +54,12 @@ class PickupTests(unittest.TestCase):
 
     def test_home_code_and_password(self):
         rec = dg.make_share([self.file], passphrase='secret')
-        self.assertEqual(len(dg.CODE_WORDS), 64)
-        self.assertEqual(len(set(dg.CODE_WORDS)), 64)
-        self.assertRegex(rec['pickup_code'], r'^[a-z]+-[a-z]+-[a-z]+-\d{6}$')
-        self.assertIn(b'name=code', self.request('GET', '/')[2])
-        code = rec['pickup_code'].upper().replace('-', ' ')
+        self.assertEqual(rec['pickup_code'], 'hello')  # kod = nazwa pliku bez rozszerzenia
+        page = self.request('GET', '/')[2]
+        self.assertIn(b'name=code', page)
+        self.assertIn(b'type=text', page)  # pole ma styl z PAGE_CSS, nie domyślny przeglądarki
+        self.assertIn('input[type=text]', dg.PAGE_CSS)
+        code = 'HELLO.TXT'  # z rozszerzeniem i wielkimi literami też działa
         status, headers, _ = self.receive(code)
         self.assertEqual(status, 303)
         self.assertEqual(headers['Location'], '/d/' + rec['token'])
@@ -90,6 +91,22 @@ class PickupTests(unittest.TestCase):
         self.assertEqual((status, body), (200, b'hello'))
         self.assertTrue(self.download_done.wait(5))
         self.assertEqual(self.receive(rec['pickup_code'])[0], 404)
+
+    def test_filename_codes(self):
+        pl = dg.BASE / 'Zdjęcie Mamy_2025.JPG'
+        pl.write_text('x')
+        rec = dg.make_share([pl])
+        self.assertEqual(rec['pickup_code'], 'zdjecie-mamy-2025')
+        for typed in ('zdjecie mamy 2025', 'Zdjęcie Mamy_2025.jpg', 'ZDJĘCIE-MAMY-2025'):
+            self.assertEqual(self.receive(typed)[1].get('Location'), '/d/' + rec['token'], typed)
+        # ta sama nazwa, gdy pierwszy kod jeszcze działa → sufiks
+        second = dg.make_share([pl])
+        self.assertEqual(second['pickup_code'], 'zdjecie-mamy-2025-2')
+        self.assertEqual(self.receive('zdjecie-mamy-2025-2')[1]['Location'], '/d/' + second['token'])
+        # etykieta ma pierwszeństwo przed nazwą pliku
+        self.assertEqual(dg.make_share([self.file], label='Ł dla Oli')['pickup_code'], 'l-dla-oli')
+        self.assertEqual(dg.code_from_name('.bashrc'), '.bashrc')
+        self.assertEqual(dg.code_from_name('archiwum.tar.gz'), 'archiwum.tar')
 
     def test_rate_limit_and_bad_input(self):
         self.assertEqual(self.receive('żółw')[0], 404)

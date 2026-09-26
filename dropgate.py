@@ -72,7 +72,17 @@ def new_pickup_code():
     return '-'.join(secrets.choice(CODE_WORDS) for _ in range(3)) + f'-{secrets.randbelow(1000000):06d}'
 
 def normalize_pickup_code(value):
-    return '-'.join(value.strip().lower().split()).replace('_', '-')
+    """Nazwa pliku jako kod: bez wielkości liter, spacji/podkreśleń i polskich znaków,
+    żeby „Zdjęcie Mamy.JPG” i „zdjecie-mamy” znaczyły to samo."""
+    import unicodedata
+    value = unicodedata.normalize('NFKD', value.replace('ł', 'l').replace('Ł', 'L'))
+    value = ''.join(c for c in value if not unicodedata.combining(c))
+    return '-'.join(value.strip().lower().replace('_', ' ').split())
+
+def code_from_name(name):
+    """Kod odbioru = nazwa pliku bez rozszerzenia (znormalizowana)."""
+    stem = name.rsplit('.', 1)[0] if '.' in name.strip('.') else name
+    return normalize_pickup_code(stem)
 
 def resolve_pickup_code(value):
     # Globalny limit, także za tunelem: nie ufamy nagłówkom z adresem klienta.
@@ -82,10 +92,12 @@ def resolve_pickup_code(value):
         if len(CODE_ATTEMPTS) >= 30:
             return None, True
         CODE_ATTEMPTS.append(now)
-    code = normalize_pickup_code(value)
+    # odbiorca może wpisać nazwę z rozszerzeniem albo bez
+    candidates = {normalize_pickup_code(value), code_from_name(value)} - {''}
     for token, rec in db_load()['shares'].items():
+        stored = rec.get('pickup_code', '').encode()
         if (rec.get('pickup_until', 0) > time.time() and share_alive(rec)[0]
-                and hmac.compare_digest(code.encode(), rec.get('pickup_code', '').encode())):
+                and any(hmac.compare_digest(c.encode(), stored) for c in candidates)):
             return token, False
     return None, False
 
@@ -271,10 +283,13 @@ def make_share(paths, expires=None, maxdl=None, once=False, passphrase=None,
         "files": files,
     }
     def save(data):
-        used = {r.get('pickup_code') for r in data['shares'].values()}
-        code = new_pickup_code()
+        # kolizję liczymy tylko wśród kodów, które jeszcze działają
+        used = {r.get('pickup_code') for r in data['shares'].values()
+                if r.get('pickup_until', 0) > now}
+        base = code_from_name(rec['label']) or new_pickup_code()
+        code, n = base, 2
         while code in used:
-            code = new_pickup_code()
+            code, n = f'{base}-{n}', n + 1
         rec['pickup_code'] = code
         rec['pickup_until'] = min(now + CODE_TTL, rec['expires'] or now + CODE_TTL)
         data['shares'][token] = rec
@@ -630,10 +645,13 @@ a.f:hover{color:var(--acc)}
 .sz{color:var(--dim);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .badge{color:var(--dim);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
 margin-top:16px}
-input[type=password]{width:100%;background:transparent;border:1px solid var(--line);
+label{display:block;color:var(--dim);font-size:11px;letter-spacing:.06em;
+text-transform:uppercase;margin-top:4px}
+input[type=password],input[type=text]{width:100%;background:transparent;border:1px solid var(--line);
 color:var(--fg);border-radius:2px;padding:11px 12px;font:14px %MONO%;margin:6px 0 10px;
-outline:none}
-input[type=password]:focus{border-color:var(--acc)}
+outline:none;-webkit-appearance:none;appearance:none}
+input[type=password]:focus,input[type=text]:focus{border-color:var(--acc)}
+input::placeholder{color:#4a4a52}
 button{width:100%;font:600 13px %MONO%;color:#0a0a0c;background:var(--acc);
 border:0;border-radius:2px;padding:11px;cursor:pointer;letter-spacing:.02em}
 button:hover{background:#ffc46a}
@@ -695,12 +713,13 @@ class Handler(BaseHandler):
         parts = [unquote(p) for p in u.path.split("/") if p != ""]
         if not parts:
             return self._send(page("dropgate", "<h1>dropgate</h1>"
-                "<p>Wpisz kod od osoby wysyłającej plik.</p>"
-                "<form method=post action='/receive'><label for=code>Kod odbioru</label>"
-                "<p><input id=code name=code required maxlength=100 autocomplete=off "
-                "autocapitalize=none spellcheck=false placeholder='lis-klon-kawa-482913'></p>"
+                "<p class=muted>Wpisz nazwę pliku od osoby, która go wysłała.</p>"
+                "<form method=post action='/receive'><label for=code>Nazwa pliku</label>"
+                "<input id=code name=code type=text required maxlength=200 autocomplete=off "
+                "autocapitalize=none spellcheck=false placeholder='np. raport.pdf'>"
                 "<button type=submit>Odbierz plik</button></form>"
-                "<p class=muted>Kod jest ważny przez 15 minut od utworzenia udostępnienia.</p>"))
+                "<p class=muted>Działa przez 15 minut od udostępnienia. "
+                "Wielkość liter i polskie znaki nie mają znaczenia.</p>"))
         if parts[0] == "d" and len(parts) == 2:
             return self._share_index(parts[1])
         if parts[0] == "d" and len(parts) == 3:
@@ -1161,7 +1180,7 @@ function render(s){
           <button class="act rm" data-rm="${esc(x.token)}">usuń</button>
         </span>
       </div>
-      ${x.pickup_code?`<div class=meta>Kod odbioru: <button class=act data-copy="${esc(x.pickup_code)}">${esc(x.pickup_code)}</button> · do ${esc(x.pickup_until)} · wpisz na stronie głównej dropgate</div>`:''}
+      ${x.pickup_code?`<div class=meta>Kod (nazwa pliku): <button class=act data-copy="${esc(x.pickup_code)}">${esc(x.pickup_code)}</button> · do ${esc(x.pickup_until)} · wpisz na stronie głównej dropgate</div>`:''}
       <div class=meta>${x.files.length>1?x.files.length+' pliki · ':''}${
         x.expires?'wygasa '+esc(x.expires)+' · ':''}pobrań ${x.downloads}${x.max!==null?'/'+x.max:''}${
         x.pass?' · <span class=tag>hasło</span>':''}${x.once?' · <span class=tag>jednorazowy</span>':''}${

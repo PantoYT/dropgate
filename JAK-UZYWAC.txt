@@ -46,11 +46,11 @@ SZYFROWANIE STANU
 ADRES
 -----
 
-  Nie musisz dyktowac dlugiego linku: nowe udostepnienie pokazuje tez
-  kod odbioru, np. lis-klon-kawa-482913 (w panelu kliknij kod, aby skopiowac).
-  Odbiorca otwiera https://drop.panto-dev.com i wpisuje kod.
-  Kod dziala 15 minut od utworzenia; potem nadal dziala pelny link.
-  Stare udostepnienia maja tylko dotychczasowy link.
+  Nie musisz dyktowac dlugiego linku: odbiorca otwiera
+  https://drop.panto-dev.com i wpisuje NAZWE PLIKU (np. raport albo raport.pdf).
+  Wielkosc liter, spacje i polskie znaki nie maja znaczenia.
+  Dziala 15 minut od udostepnienia; potem nadal dziala pelny link.
+  Nazwe latwiej zgadnac niz link - do czegos prywatnego dodaj --pass.
 
   Domyslnie linki wygladaja tak:
 
