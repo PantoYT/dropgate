@@ -10,11 +10,12 @@ wpnij w Cloudflare i wyślij komuś plik przez 128-bitowy klucz hex.
   python3 dropgate.py add plik.7z --expires 24h --pass sezam
 
 Dwa serwery, celowo rozdzielone:
-  * PUBLICZNY  (tunelowany)  — tylko /d/<token>, nic więcej
+  * PUBLICZNY  (tunelowany)  — odbiór kodem oraz /d/<token>
   * PANEL      (127.0.0.1)   — dodawanie/kasowanie, NIGDY nie idzie w tunel
 
 Model bezpieczeństwa:
   * token = secrets.token_hex(16) (128 bit) — URL jest capability (nie do zgadnięcia)
+  * kod odbioru: 3 losowe słowa + 6 cyfr, 15 minut, globalnie 30 prób/min/proces
   * porównania stałoczasowe (hmac.compare_digest) — brak timing-oracle
   * anti-traversal: serwuje wyłącznie z allowlisty nazw danego share'a
   * opcjonalne hasło (drugi czynnik) — trzymane jako salt+sha256, cookie podpisane HMAC
@@ -55,6 +56,38 @@ SECRET_PATH = BASE / "secret.key"
 CONF_PATH = BASE / "config.json"
 FILES_DIR = BASE / "files"          # tu lądują pliki wrzucone przez panel / --copy
 CHUNK = 256 * 1024                  # 256 KB — rozmiar kawałka streamingu
+
+# Krótkotrwały kod do dyktowania; trwałe linki nadal mają 128 bitów.
+CODE_WORDS = tuple(('lis kot pies wilk ryba sowa kruk kos jezyk kret bobr los '
+    'zubr kon lama panda koala zebra tygrys lew foka mors orka rekin '
+    'klon dab buk lipa sosna palma brzoza jodla mech las park sad '
+    'kawa herbata mleko woda sok miod mak ryz chleb ser sol pieprz '
+    'dom most port statek kajak rower balon zegar kompas lampa mapa radio '
+    'niebo oblok deszcz wiatr').split())
+CODE_TTL = 15 * 60
+CODE_LOCK = threading.Lock()
+CODE_ATTEMPTS = []
+
+def new_pickup_code():
+    return '-'.join(secrets.choice(CODE_WORDS) for _ in range(3)) + f'-{secrets.randbelow(1000000):06d}'
+
+def normalize_pickup_code(value):
+    return '-'.join(value.strip().lower().split()).replace('_', '-')
+
+def resolve_pickup_code(value):
+    # Globalny limit, także za tunelem: nie ufamy nagłówkom z adresem klienta.
+    with CODE_LOCK:
+        now = time.monotonic()
+        CODE_ATTEMPTS[:] = [t for t in CODE_ATTEMPTS if now - t < 60]
+        if len(CODE_ATTEMPTS) >= 30:
+            return None, True
+        CODE_ATTEMPTS.append(now)
+    code = normalize_pickup_code(value)
+    for token, rec in db_load()['shares'].items():
+        if (rec.get('pickup_until', 0) > time.time() and share_alive(rec)[0]
+                and hmac.compare_digest(code.encode(), rec.get('pickup_code', '').encode())):
+            return token, False
+    return None, False
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Warstwa stanu (DB) — atomowy zapis + blokada plikowa między procesami
@@ -237,7 +270,15 @@ def make_share(paths, expires=None, maxdl=None, once=False, passphrase=None,
         "pass": hash_pass(passphrase),
         "files": files,
     }
-    db_update(lambda d: d["shares"].__setitem__(token, rec))
+    def save(data):
+        used = {r.get('pickup_code') for r in data['shares'].values()}
+        code = new_pickup_code()
+        while code in used:
+            code = new_pickup_code()
+        rec['pickup_code'] = code
+        rec['pickup_until'] = min(now + CODE_TTL, rec['expires'] or now + CODE_TTL)
+        data['shares'][token] = rec
+    db_update(save)
     return rec
 
 def drop_share(token: str) -> bool:
@@ -654,7 +695,12 @@ class Handler(BaseHandler):
         parts = [unquote(p) for p in u.path.split("/") if p != ""]
         if not parts:
             return self._send(page("dropgate", "<h1>dropgate</h1>"
-                                   "<p class=muted>Serwer działa. Potrzebujesz linku z tokenem.</p>"))
+                "<p>Wpisz kod od osoby wysyłającej plik.</p>"
+                "<form method=post action='/receive'><label for=code>Kod odbioru</label>"
+                "<p><input id=code name=code required maxlength=100 autocomplete=off "
+                "autocapitalize=none spellcheck=false placeholder='lis-klon-kawa-482913'></p>"
+                "<button type=submit>Odbierz plik</button></form>"
+                "<p class=muted>Kod jest ważny przez 15 minut od utworzenia udostępnienia.</p>"))
         if parts[0] == "d" and len(parts) == 2:
             return self._share_index(parts[1])
         if parts[0] == "d" and len(parts) == 3:
@@ -664,6 +710,24 @@ class Handler(BaseHandler):
     def do_POST(self):
         u = urlparse(self.path)
         parts = [unquote(p) for p in u.path.split("/") if p != ""]
+        if parts == ['receive']:
+            try:
+                length = int(self.headers.get('Content-Length', '0'))
+            except ValueError:
+                length = -1
+            if not 0 < length <= 512 or self.headers.get('Transfer-Encoding'):
+                self.close_connection = True
+                return self._send(b'Invalid request', code=400)
+            fields = parse_qs(self.rfile.read(length).decode('utf-8', 'replace'))
+            token, limited = resolve_pickup_code(fields.get('code', [''])[0])
+            if limited:
+                return self._send(page('Poczekaj', '<h1>Za dużo prób</h1><p>Spróbuj za minutę.</p>'),
+                                  code=429, extra=[('Retry-After', '60')])
+            if token:
+                return self._send(b'', code=303, extra=[('Location', f'/d/{token}')])
+            return self._send(page('Kod nie działa', '<h1>Kod nie działa</h1>'
+                '<p>Sprawdź pisownię. Kod mógł wygasnąć lub plik jest już niedostępny.</p>'
+                '<a href="/">Wpisz ponownie</a>'), code=404)
         if parts[:1] == ["d"] and len(parts) == 2:
             return self._unlock(parts[1])
         return self._notfound()
@@ -1097,6 +1161,7 @@ function render(s){
           <button class="act rm" data-rm="${esc(x.token)}">usuń</button>
         </span>
       </div>
+      ${x.pickup_code?`<div class=meta>Kod odbioru: <button class=act data-copy="${esc(x.pickup_code)}">${esc(x.pickup_code)}</button> · do ${esc(x.pickup_until)} · wpisz na stronie głównej dropgate</div>`:''}
       <div class=meta>${x.files.length>1?x.files.length+' pliki · ':''}${
         x.expires?'wygasa '+esc(x.expires)+' · ':''}pobrań ${x.downloads}${x.max!==null?'/'+x.max:''}${
         x.pass?' · <span class=tag>hasło</span>':''}${x.once?' · <span class=tag>jednorazowy</span>':''}${
@@ -1220,6 +1285,8 @@ class AdminHandler(BaseHandler):
             ok, reason = share_alive(r)
             out.append({
                 "token": tok,
+                "pickup_code": r.get('pickup_code', '') if ok and r.get('pickup_until', 0) > time.time() else '',
+                "pickup_until": time.strftime('%H:%M', time.localtime(r.get('pickup_until', 0))),
                 "label": r.get("label", "?"),
                 "files": [{"name": f["name"], "size": fmt_size(f.get("size", 0))} for f in r["files"]],
                 "size": fmt_size(share_size(r)),
@@ -1518,7 +1585,8 @@ def cmd_share(args):
     def announce(_=None):
         url = public_link(rec["token"])
         copied = clip_copy(url)
-        lines = [f"LINK:  {url}"]
+        lines = [f"LINK:  {url}", f"KOD (15 min): {rec['pickup_code']}",
+                 f"Wpisz kod na: {link_base()}/"]
         if copied: lines.append("(skopiowany do schowka)")
         if rec.get("pass"): lines.append("hasło: ustawione")
         if rec.get("expires"):
@@ -1544,6 +1612,7 @@ def cmd_add(args):
                      maxdl=args.max, once=args.once, passphrase=args.passphrase,
                      label=args.label, copy=args.copy)
     print(f"token: {rec['token']}")
+    print(f"kod odbioru (15 min, na stronie głównej): {rec['pickup_code']}")
     if rec.get("expires"):
         print("wygasa:", time.strftime("%Y-%m-%d %H:%M", time.localtime(rec["expires"])))
     if rec.get("max") is not None: print("limit pobrań:", rec["max"])

@@ -1,170 +1,196 @@
 # dropgate
 
-Samodzielny, bezpieczny drop plików przez tokenowany link. Jeden plik Python,
-**tylko biblioteka standardowa**, zero zależności (poza `cloudflared`, jeśli chcesz tunel).
-Postaw gdziekolwiek gdzie jest `python3 >= 3.8`.
+A standalone, secure file drop via a tokenized link. One Python file, **standard library
+only**, zero dependencies (except `cloudflared`, if you want a tunnel). Run it anywhere
+with `python3 >= 3.8`.
 
 ## Idea
 
-Wycięty i wzmocniony mechanizm `/dl/` z Pontifexa. Wrzucasz plik → dostajesz
-128-bitowy token hex → wysyłasz komuś link. Cloudflare daje HTTPS bez grzebania
-w routerze: quick-tunnel (losowa domena, zero konfiguracji) albo nazwany tunel
-(stała domena, np. `drop.twoja-domena.pl`).
+The `/dl/` mechanism from Pontifex, cut out and hardened. You drop a file → you get a
+128-bit hex token → you send someone the link. Cloudflare provides HTTPS without touching
+the router: a quick tunnel (random domain, zero configuration) or a named tunnel (fixed
+domain, e.g. `drop.your-domain.com`).
 
-## Szybki start
+## Quick start
 
 ```bash
-# panel w przeglądarce: przeciągasz plik → link ląduje w schowku
+# browser panel: drag a file in → the link lands in your clipboard
 python3 dropgate.py go
 
-# albo jedna komenda na jeden plik
-python3 dropgate.py share ~/backup.zip --expires 24h --pass sezam
-#   → LINK: https://losowa-nazwa.trycloudflare.com/d/<token>  (skopiowany do schowka)
+# or one command per file
+python3 dropgate.py share ~/backup.zip --expires 24h --pass sesame
+#   → LINK: https://random-name.trycloudflare.com/d/<token>  (copied to the clipboard)
 ```
 
-Odbiorca otwiera link → (ewentualnie hasło) → lista plików → pobiera.
+The recipient opens the link → (optionally a password) → file list → download.
 
-## Dwa serwery, celowo rozdzielone
+## Two servers, deliberately separated
 
-| | port | co wystawia | kto ma dostęp |
+| | port | what it exposes | who can reach it |
 |---|---|---|---|
-| **publiczny** | 8787 | wyłącznie `/d/<token>` | świat, przez tunel |
-| **panel** | 8788 | dodawanie / kasowanie / linki | tylko `127.0.0.1` + token sesji |
+| **public** | 8787 | only `/d/<token>` | the world, through the tunnel |
+| **panel** | 8788 | adding / deleting / links | only `127.0.0.1` + session token |
 
-Do tunelu trafia **wyłącznie** port publiczny — panel nie jest osiągalny z zewnątrz
-nawet przez pomyłkę w konfiguracji. Panel dodatkowo sprawdza adres klienta, token
-sesji w cookie (`HttpOnly; SameSite=Strict`) i wymaga nagłówka `X-Dropgate`,
-którego nie da się wysłać zwykłym formularzem z obcej strony.
+**Only** the public port goes into the tunnel — the panel isn't reachable from outside
+even by a configuration mistake. The panel additionally checks the client address, a
+session token in a cookie (`HttpOnly; SameSite=Strict`) and requires an `X-Dropgate`
+header, which a plain form on a foreign page can't send.
 
-## Komendy
+## Commands
 
-| Komenda | Opis |
+| Command | Description |
 |---|---|
-| `go` | serwer + tunel + panel w przeglądarce (domyślne przy gołym uruchomieniu) |
-| `share <pliki...>` | dodaj i od razu wystaw link, skopiowany do schowka |
-| `add <pliki...>` | sam wpis w bazie, bez serwera |
-| `ls` / `rm <token\|all>` / `url [token]` | lista / kasowanie / linki |
-| `serve [--host H] [--port N]` | sam serwer publiczny |
-| `tunnel` | serwer + tunel, linki na stdout |
-| `backup [--status] [--list]` | wyślij kopię stanu na własny serwer po SSH |
-| `restore [NAZWA] --yes` | odtwórz stan z kopii |
-| `config [--mode …] [--hostname …]` | podgląd i ustawienia |
+| `go` | server + tunnel + browser panel (the default when run bare) |
+| `share <files...>` | add and immediately publish a link, copied to the clipboard |
+| `add <files...>` | database entry only, no server |
+| `ls` / `rm <token\|all>` / `url [token]` | list / delete / links |
+| `serve [--host H] [--port N]` | public server only |
+| `tunnel` | server + tunnel, links on stdout |
+| `backup [--status] [--list]` | send a copy of the state to your own server over SSH |
+| `restore [NAME] --yes` | restore the state from a copy |
+| `config [--mode …] [--hostname …]` | view and change settings |
 
-Wspólne flagi share'a: `-e/--expires 30m|12h|7d|never`, `--max N`, `--once`,
-`--pass HASŁO`, `--label TXT`, `--copy` (skopiuj plik do magazynu dropgate).
-Flagi tunelu: `--quick` (losowa domena), `--named` (stała domena z configu),
-`--no-tunnel`, `--lan` (bez tunelu, link w sieci lokalnej), `-v` (logi cloudflared).
+Common share flags: `-e/--expires 30m|12h|7d|never`, `--max N`, `--once`,
+`--pass PASSWORD`, `--label TXT`, `--copy` (copy the file into dropgate's storage).
+Tunnel flags: `--quick` (random domain), `--named` (fixed domain from the config),
+`--no-tunnel`, `--lan` (no tunnel, a link on the local network), `-v` (cloudflared logs).
 
-Przeciągnięcie plików na `dropgate.py` (albo na `.bat` z paczki portable) działa
-jak `share` — pierwszy argument będący istniejącą ścieżką włącza ten tryb.
+Dropping files onto `dropgate.py` (or onto the `.bat` from the portable pack) works like
+`share` — a first argument that is an existing path switches that mode on.
 
-## Bezpieczeństwo
+## Security
 
-- **Token** = `secrets.token_hex(16)` (128 bit). URL jest capability — nie do zgadnięcia.
-- **Porównania stałoczasowe** (`hmac.compare_digest`) — brak timing-oracle na tokenie,
-  haśle i tokenie panelu.
-- **Anti-traversal**: serwer oddaje wyłącznie pliki z allowlisty danego share'a; nazwa z URL
-  jest redukowana do `basename`, nigdy nie sklejana ze ścieżką.
-- **Hasło** (opcjonalny drugi czynnik): trzymane jako `salt + sha256`, po odblokowaniu
-  cookie podpisane HMAC serwera (`HttpOnly; SameSite=Strict`), hasło nie ląduje w URL/logach.
-- **Wygasanie** czasowe, **limit pobrań** (`--max`), **burn-after-download** (`--once`,
-  kasuje też skopiowane pliki z magazynu).
-- **Streaming** w kawałkach 256 KB + obsługa **Range** (wznawianie) — duże pliki bez wczytywania
-  do RAM. Upload do panelu też leci strumieniowo na dysk.
-- Domyślny bind `127.0.0.1` (tunel łączy się lokalnie). `--lan` jeśli chcesz LAN.
+- **Token** = `secrets.token_hex(16)` (128 bit). The URL is a capability — unguessable.
+- **Constant-time comparisons** (`hmac.compare_digest`) — no timing oracle on the token,
+  the password or the panel token.
+- **Anti-traversal**: the server returns only files on the given share's allowlist; the
+  name from the URL is reduced to `basename`, never joined with a path.
+- **Password** (optional second factor): stored as `salt + sha256`; after unlocking, a
+  cookie signed with the server's HMAC (`HttpOnly; SameSite=Strict`); the password never
+  lands in the URL or logs.
+- Time-based **expiry**, a **download limit** (`--max`), **burn-after-download**
+  (`--once`, also deletes copied files from storage).
+- **Streaming** in 256 KB chunks + **Range** support (resuming) — large files without
+  loading them into RAM. Uploads to the panel are also streamed to disk.
+- Default bind is `127.0.0.1` (the tunnel connects locally). `--lan` if you want LAN.
 
-## Stan
+## State
 
-Trzymany w `~/.dropgate/` (albo `$DROPGATE_HOME`, albo `state/` obok skryptu gdy leży
-plik-znacznik `PORTABLE`): `shares.json` (0600, atomowy zapis pod blokadą `flock`),
-`secret.key` (0600, HMAC cookies), `config.json`, `files/` (kopie z panelu i `--copy`).
+Kept in `~/.dropgate/` (or `$DROPGATE_HOME`, or `state/` next to the script when a
+`PORTABLE` marker file is present): `shares.json` (0600, atomic write under a `flock`
+lock), `secret.key` (0600, HMAC for cookies), `config.json`, `files/` (copies from the
+panel and `--copy`).
 
-Pliki dodane przez `add`/`share` są referencjonowane **w miejscu** (po ścieżce) — usunięcie
-źródła → link zwraca 410. Dodatkowo zapisywana jest ścieżka względem korzenia wolumenu,
-więc share z pendrive'a przeżyje zmianę litery dysku.
+Files added with `add`/`share` are referenced **in place** (by path) — deleting the
+source → the link returns 410. A path relative to the volume root is stored as well, so a
+share from a USB stick survives a drive letter change.
 
-## Portable (pendrive)
+## Portable (USB stick)
 
 ```
 dropgate\
-  dropgate.bat        dwuklik → panel w przeglądarce
-  wyslij-plik.bat     przeciągnij na to plik → gotowy link
+  dropgate.bat        double-click → browser panel
+  wyslij-plik.bat     drag a file onto it → ready link
   dropgate.py
-  PORTABLE            znacznik: stan trzymaj obok skryptu
-  python\             Python embeddable — działa na komputerze bez Pythona
+  PORTABLE            marker: keep the state next to the script
+  python\             embeddable Python — works on a computer without Python
   bin\cloudflared.exe
-  state\              baza, klucz HMAC, poświadczenia tunelu, files\
+  state\              database, HMAC key, tunnel credentials, files\
 ```
 
-`state/tunnel.json` (poświadczenia nazwanego tunelu) to sekret — cały katalog
-`portable/` jest w `.gitignore`. Zgubiony pendrive → `cloudflared tunnel delete <nazwa>`.
+`state/tunnel.json` (named tunnel credentials) is a secret — the whole `portable/`
+directory is in `.gitignore`. Lost USB stick → `cloudflared tunnel delete <name>`.
 
-## Backup na własny serwer
+## Backup to your own server
 
-Pendrive jest pojedynczym punktem awarii: zgubisz go albo padnie kość — znikają
-i pliki z magazynu, i baza tokenów. Dlatego dropgate umie wypchnąć cały katalog
-stanu (`shares.json`, `secret.key`, `config.json`, poświadczenia tunelu, `files/`)
-na własny serwer po SSH.
+The USB stick is a single point of failure: lose it or have the flash die, and both the
+stored files and the token database are gone. So dropgate can push the whole state
+directory (`shares.json`, `secret.key`, `config.json`, tunnel credentials, `files/`) to
+your own server over SSH.
 
 ```bash
-python3 dropgate.py backup            # spakuj i wyślij teraz
-python3 dropgate.py backup --status   # kiedy ostatnio, ile kopii, ile miejsca
-python3 dropgate.py restore --yes     # odtwórz najnowszą (NADPISUJE stan)
+python3 dropgate.py backup            # pack and send now
+python3 dropgate.py backup --status   # when last, how many copies, how much space
+python3 dropgate.py restore --yes     # restore the newest (OVERWRITES the state)
 ```
 
-W trybie `go` backup leci sam po każdej zmianie bazy (5 s wyciszenia), a panel
-pokazuje „backup 3 min temu" — kliknięcie wymusza kopię.
+In `go` mode a backup runs by itself after every database change (5 s debounce), and the
+panel shows "backup 3 min ago" — clicking it forces a copy.
 
-Ponieważ `secret.key` i tokeny wracają 1:1, **po odtworzeniu na nowym pendrivie
-stare linki działają dalej** (o ile domena wskazuje tam, gdzie teraz stoi dropgate).
+Because `secret.key` and the tokens come back 1:1, **after restoring onto a new USB stick
+the old links keep working** (as long as the domain points to where dropgate now runs).
 
-### Klucz bez shella
+### A key without a shell
 
-Backup nie używa Twojego zwykłego klucza SSH. Na serwerze siedzi mały odbiornik
-przypięty do osobnego klucza:
+Backup doesn't use your regular SSH key. The server has a small receiver pinned to a
+separate key:
 
 ```
 # ~/.ssh/authorized_keys
 restrict,command="/home/USER/dropgate-recv.sh" ssh-ed25519 AAAA… dropgate-portable
 ```
 
-`dropgate-recv.sh` rozumie wyłącznie `list | put <plik> | get <plik> | prune <n> | stat`,
-waliduje nazwę regexem i nie skleja niczego z shellem. Zgubiony pendrive daje więc
-dostęp do własnych kopii, **nie do serwera** — a i to odcinasz, kasując jedną linijkę
-z `authorized_keys`.
+`dropgate-recv.sh` understands only `list | put <file> | get <file> | prune <n> | stat`,
+validates the name with a regex and never passes anything to a shell. A lost USB stick
+therefore gives access to its own copies, **not to the server** — and you cut even that
+off by deleting one line from `authorized_keys`.
 
-Klucz hosta jest przypięty w `state/known_hosts`, więc backup z obcej sieci nie
-da się podstawić pod MITM — przy podmienionym kluczu połączenie po prostu pada.
+The host key is pinned in `state/known_hosts`, so a backup from a foreign network can't
+be redirected to a MITM — with a swapped key the connection simply fails.
 
-Windows OpenSSH odmawia użycia klucza leżącego na pendrivie (ACL „Everyone" →
-`bad permissions`). dropgate wykrywa to i na czas transferu robi prywatną kopię
-klucza w katalogu tymczasowym, nadpisuje ją losowymi bajtami i kasuje.
+Windows OpenSSH refuses to use a key stored on a USB stick (ACL "Everyone" →
+`bad permissions`). dropgate detects this and for the duration of the transfer makes a
+private copy of the key in a temp directory, then overwrites it with random bytes and
+deletes it.
 
-Konfiguracja siedzi w `config.json`:
+The configuration lives in `config.json`:
 
 ```json
 "backup": {"host": "10.0.0.5", "user": "backup", "key": "backup_key",
            "known_hosts": "known_hosts", "auto": true, "keep": 10, "timeout": 8}
 ```
 
-Backup działa tam, gdzie widać serwer. Wpisz adres z sieci mesh (Tailscale,
-WireGuard, ZeroTier) zamiast LAN-owego — wtedy kopie robią się z każdej sieci,
-a nie tylko spod domowego routera. Gdy serwera nie widać, kopie po prostu się nie
-robią: dropgate pisze o tym w panelu i nie blokuje pracy, a po nieudanej próbie
-czeka `retry_after` sekund. **Nie kasuj tej karencji** — seria nieudanych logowań
-to najprostsza droga do bana od fail2ban po stronie serwera.
+Backup works where the server is visible. Use an address from a mesh network
+(Tailscale, WireGuard, ZeroTier) instead of the LAN one — then copies are made from any
+network, not only behind the home router. When the server isn't visible, copies simply
+don't happen: dropgate says so in the panel and doesn't block work, and after a failed
+attempt it waits `retry_after` seconds. **Don't remove that grace period** — a series of
+failed logins is the easiest way to get banned by fail2ban on the server side.
 
-Skrypt odbiornika: [`extras/dropgate-recv.sh`](extras/dropgate-recv.sh).
+Receiver script: [`extras/dropgate-recv.sh`](extras/dropgate-recv.sh).
 
-## Stała domena
+## Fixed domain
 
 ```bash
 cloudflared tunnel create dropgate
-cloudflared tunnel route dns dropgate drop.twoja-domena.pl
-cp ~/.cloudflared/<uuid>.json  <stan>/tunnel.json
-python3 dropgate.py config --mode named --hostname drop.twoja-domena.pl --tunnel-id <uuid>
+cloudflared tunnel route dns dropgate drop.your-domain.com
+cp ~/.cloudflared/<uuid>.json  <state>/tunnel.json
+python3 dropgate.py config --mode named --hostname drop.your-domain.com --tunnel-id <uuid>
 ```
 
-Osobny tunel na dropgate'a, nie doklejanie hostname'u do istniejącego: ta sama nazwa
-tunelu uruchomiona na dwóch maszynach to repliki, a ruch idzie do **geograficznie
-najbliższej** — czyli z pendrive'a trafiałby losowo raz tu, raz tam.
+A separate tunnel for dropgate rather than adding a hostname to an existing one: the same
+tunnel name running on two machines means replicas, and traffic goes to the
+**geographically nearest** — so from a USB stick it would randomly land here one time and
+there another.
+
+## Pickup without retyping the link
+
+A new share gets an extra code, e.g. `lis-klon-kawa-482913`. The sender sees it in the
+panel (clicking copies the code) and in the `add` and `share` commands. The recipient
+opens the main dropgate address and types the code. Case doesn't matter, dashes can be
+replaced with spaces. The file's password, download limit and one-time mode still apply.
+
+The code works for **15 minutes from creating the share**, at most until the file
+expires. After that use the regular link or create a new share. Existing shares keep
+working through their original links.
+
+A short code has about 38 bits of randomness, so it's a weaker secret than the 128-bit
+link. That's why the pickup endpoint has a global limit of 30 attempts per minute per
+process, including behind the tunnel. The limit can temporarily block code pickup under
+heavy traffic; regular links keep working. After a process restart the attempt counter
+starts from zero. Don't run multiple replicas with this mechanism.
+
+Tests without a tunnel and without touching the real state:
+`python -m unittest test_pickup.py`.
+
+The panel and command output are in Polish.
